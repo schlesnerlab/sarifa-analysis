@@ -1,0 +1,18 @@
+version: "3.9"
+services:
+  cwd:
+    build: .
+    volumes:
+      - ./R:/cwd/code
+      - ./data:/cwd/data
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=${HOSTNAME}:0
+    tty: true
+    command: /bin/bash
+    #command: Rscript /cwd/code/main.R
+    #  butchr:
+    #image: hdsu/butchr
+    #volumes:
+    # - ./R:/cwd/code
+    # - ./data:/cwd/data
