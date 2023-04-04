@@ -1,0 +1,650 @@
+---
+title: "heatmapsarifa"
+author: "Christian Heyer"
+date: '2022-05-31'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(DESeq2)
+library(ComplexHeatmap)
+library(magrittr)
+library(tibble)
+library(stringr)
+library(EnsDb.Hsapiens.v86)
+library(dplyr)
+library(ggsci)
+library(viridis)
+library(ggsignif)
+library(PCAtools)
+#library(immunedeconv)
+library(EnhancedVolcano)
+library(forcats)
+library(readr)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, dev = "png")
+
+# Code welcher ganz bestimmt nicht copypastet ist >->
+edb <- EnsDb.Hsapiens.v86
+assign_symbols_to_DESeqDataSet <- function(dds) {
+  # Use ensb as symbol
+  gene_ids <- stringr::str_replace(rownames(dds), "[.][0-9]*$", "")
+
+  gene_names <- mapIds(edb, keys=gene_ids, keytype="GENEID", column="SYMBOL", multiVals="first")
+
+  # Polyfill gene names with ids
+  gene_names[sapply(gene_names, function(x) length(x) == 0 || is.na(x))] = gene_ids[sapply(gene_names, function(x) length(x) == 0 || is.na(x))]
+
+  rownames(dds) = make.unique(unlist(gene_names))
+
+  return(dds)
+}
+
+```
+
+```{r cars}
+dds_red <- readRDS("/cwd/data/cache/dds_reduced.rds")
+dds_red <- assign_symbols_to_DESeqDataSet(dds_red) 
+SARIFA_klasses <- readxl::read_xlsx("/cwd/data/stad_tcga_pan_can_atlas_2018_clinical_data_bg.xlsx")
+
+STROMA_scores <- readr::read_tsv("https://bioinformatics.mdanderson.org/estimate/tables/stomach_adenocarcinoma_RNAseqV2.txt") %>% as.data.frame()
+
+#SARIFA_vs_STROMA <- dplyr::inner_join(SARIFA_klasses, STROMA_scores, by = c("Sample ID" = "ID")) 
+stad_sarifa_cats <- SARIFA_klasses
+
+  
+stad_sarifa_list <- stad_sarifa_cats$`SARIFA...4`
+names(stad_sarifa_list) <- stad_sarifa_cats$`Patient ID`
+stad_sarifa_list <- stad_sarifa_list[stad_sarifa_list != "NA"]
+stad_sarifa_list <- stad_sarifa_list[stad_sarifa_list != "NV"]
+sarifa_group_list <- purrr::map_chr(colData(dds_red)$patient, function(patient_id) {
+    if(is.na(stad_sarifa_list[patient_id])) {
+      return("UNDEFINED")
+    }
+
+    if(stad_sarifa_list[patient_id] == "0") {
+      return("NON_SARIFA")
+    } 
+
+    if(stad_sarifa_list[patient_id] == "1") {
+      return("SARIFA")
+    }
+  })
+
+
+  col_data_sarifa <- tibble::tibble(sarifa_group=factor(sarifa_group_list), sample=colnames(dds_red),)
+                                 #  estimate_score = stad_sarifa_cats$ESTIMATE_score)
+  #col_data_sarifa <- left_join(col_data_sarifa, stad_sarifa_cats, by = c("Row.names" = ))
+#  col_data <- dplyr::inner_join(col_data_sarifa, as_tibble(colData(dds)), by = c("sample" = "Row.names"))
+
+```
+
+## Heatmaps
+
+You can also embed plots, for example:
+
+```{r Heatmap, echo=FALSE, fig.height = 7.5, fig.width = 9}
+build_hm <- function(dds_obj, create_butchr_input = FALSE, col_fun =  circlize::colorRamp2(c(-2, 0, 4), c("blue", "white", "red"))) {
+  hm_list <- list()
+  dds_rlog <- vst(dds_obj)
+  col_info <- colData(dds_obj)
+  col_info <- dplyr::inner_join(as_tibble(col_info), stad_sarifa_cats, by = c("patient" = "Patient ID"))
+  #col_info <- dplyr::left_join(col_info,  STROMA_scores, by = c("Sample ID" = "ID") )
+  
+  # Modify colinfo for plotting
+  col_info$paper_ABSOLUTE.Purity <- as.numeric(col_info$paper_ABSOLUTE.Purity)
+  colnames(col_info) %>% stringr::str_replace_all("[_.]"," " ) %>% str_remove("^paper ")->
+    colnames(col_info) 
+  print(colnames(col_info))
+
+  col_info$`Lauren Class`[is.na(col_info$`Lauren Class`)] <- "NA"
+  col_info$`sarifa group` <- col_info$`sarifa group` %>% forcats::fct_relevel("SARIFA")
+  
+  
+  x <- ComplexHeatmap::columnAnnotation(
+      df = data.frame(col_info[,c("sarifa group",#"ABSOLUTE Purity",
+                                  "Subtype",
+                                  "ESTIMATE score",
+                                  "Immune score", "Stromal score",
+                                  "Lauren Class")]),
+      name = "test",
+      col = list(
+        `sarifa.group` = rlang::set_names( x = ggsci::pal_npg("nrc", alpha  = 0.9)(2),
+         nm = c("SARIFA", "NON_SARIFA")
+      ), 
+      `Immune.score` = circlize::colorRamp2(c(min(col_info$`Immune score`,na.rm = T),
+                                            0,
+                                            max(col_info$`Immune score`, na.rm =T)),
+                                            c("blue", "white","red")),
+      `ESTIMATE.score` = circlize::colorRamp2(c(min(col_info$`ESTIMATE score`, na.rm =T),
+                                            0,
+                                            max(col_info$`ESTIMATE score`, na.rm = T)),
+                                            c("blue", "white","red")),
+      `Stromal.score` = circlize::colorRamp2(c(min(col_info$`Stromal score`, na.rm = T),
+                                            0,
+                                            max(col_info$`Stromal score`, na.rm = T)),
+                                            c("blue", "white","red")),
+  #    ABSOLUTE.Purity = circlize::colorRamp2(seq(0,100,1), viridis::viridis(101)),
+      Subtype = rlang::set_names(x = RColorBrewer::brewer.pal(length(unique(col_info$Subtype)),
+                                                              "Set1"),
+                                nm = unique(col_info$Subtype)),
+      `Lauren.Class` = rlang::set_names(x = ggsci::pal_jco("default", 
+                                                           alpha = 0.8)(length(
+                                                             unique(col_info$`Lauren Class`))),
+                                                nm = levels(col_info$`Lauren Class`))
+    ), gp = gpar(fontsize = 15))
+
+  vst_data <- assay(dds_rlog)
+  
+  var_vec <- apply(vst_data, 1,var)
+  vec_order <- order(var_vec, decreasing = T)
+  vst_small <- vst_data[vec_order[1:5000],]
+  print(colnames(col_info))
+ # colnames(col_info)[72] <- "patient paper"
+  colnames(col_info)[duplicated(colnames(col_info))] <- paste0(colnames(col_info)[duplicated(colnames(col_info))], "_1")
+  col_info_red <- col_info %>% as.data.frame()%>% dplyr::select(-c("treatments", "primary site","disease type"))
+  col_info_red %<>% dplyr::mutate(dplyr::across(c("ABSOLUTE Purity", `Percent Tumor Nuclei`,),
+                                                as.numeric))
+  readr::write_csv(data.frame(col_info_red), file = "TCGA_colinfo.csv")
+  saveRDS(col_info_red, file = "TCGA_colinfo.RDS")
+  saveRDS(vst_small, file = "TCGA_vst_mat.RDS")
+  
+
+  res <- readRDS("/cwd/data/cache/res_reduced.rds")
+ #res_shrunk <- dds_shrunk
+  filter_dat <-
+    data.frame(res) %>% dplyr::filter(padj < 0.05 &
+                                      abs(log2FoldChange) > 2)
+
+  vst_filtered <-
+    vst_data[rownames(vst_data) %in% rownames(filter_dat), ]
+  saveRDS(vst_filtered, "diffxp_vst.RDS")
+  vst_diffexp <- t(scale(t(vst_filtered), scale = T))
+  
+  hm_list$topvar <-   Heatmap(vst_filtered, 
+                              show_column_names = F, 
+                              show_row_names = T, 
+                              top_annotation = x,
+                            heatmap_legend_param = list(
+      title = "expr. level"
+#      at = c(-2,0,2)
+    ),
+     clustering_method_columns = "ward.D",
+  clustering_method_rows = "ward.D",
+  clustering_distance_rows = "euclidean",
+  clustering_distance_columns = "euclidean",
+    )
+  
+  hm_list$resred <- Heatmap(
+    vst_diffexp,
+  show_column_names = F,
+  show_row_names = T,
+  clustering_method_columns = "ward.D",
+  clustering_method_rows = "ward.D",
+  clustering_distance_rows = "euclidean",
+  clustering_distance_columns = "euclidean",
+  row_names_gp = gpar(fontsize = 7),
+  column_names_gp = gpar(fontsize = 7),
+  column_names_rot = 85,
+  top_annotation = x,
+  heatmap_legend_param = list(
+      title = "expr. level",
+      legend_gp = gpar(fontsize = 12)
+#      at = c(-2,0,2)
+    )
+  )
+  res <- readRDS("/cwd/data/cache/res_strict.rds")
+  filter_dat <- data.frame(res) %>% dplyr::filter(padj < 0.05 & abs(log2FoldChange) > 2
+                                                )
+
+  vst_filtered <- vst_data[rownames(vst_data) %in% rownames(filter_dat),]
+  vst_diffexp <- t(scale(t(vst_filtered), scale = T))
+  hm_list$resstrict<- Heatmap(
+    vst_diffexp,
+    col = col_fun,
+    show_column_names = F,
+    show_row_names = T,
+    clustering_method_columns = "ward.D",
+    row_names_gp = gpar(fontsize =11),
+    column_names_gp = gpar(fontsize = 7),
+    column_names_rot = 85,
+    top_annotation = x,
+    column_dend_height = unit(20, "mm"),
+    row_dend_width = unit(20, "mm"),
+    heatmap_legend_param = list(
+      title = "Z-score",
+      labels_gp = gpar(fontsize = 10),
+      legend_gp = gpar(fontsize = 10),
+      title_gp = gpar(fontsize = 11),
+      labels_gp = gpar(fontsize= 11)
+#      at = c(-2,0,2)
+    )
+  
+)
+  return(hm_list)
+}
+
+yeeter <-build_hm(dds_red)
+x <- purrr::map(yeeter, draw, annotation_legend_side = "left",padding = unit(c(2,2,2,2),"mm"))
+```
+
+### Strict
+
+```{r, fig.width =8, fig.height=9}
+dds_strict <- readRDS("/cwd/data/cache/dds_strict.rds")
+dds_strict <- assign_symbols_to_DESeqDataSet(dds_strict)
+hms <- build_hm(dds_strict)
+sink_var <- purrr::map(hms, draw, annotation_legend_side = "left",padding = unit(c(2,2,2,2),"mm"))
+```
+
+# Create Column Annotation for COmplexheatmap
+
+
+```{r, fig.height = 8, fig.width = 10, eval = T}
+dds_obj <- dds_red
+col_info <- colData(dds_obj)
+  col_info <- inner_join(as_tibble(col_info), SARIFA_klasses, by = c("patient" = "Patient ID"))
+  #col_info <- left_join(col_info,  STROMA_scores, by = c("Sample ID" = "ID") )
+  
+  col_info$paper_ABSOLUTE.Purity <- as.numeric(col_info$paper_ABSOLUTE.Purity)
+  
+
+  col_info$paper_ABSOLUTE.Purity <- as.numeric(col_info$paper_ABSOLUTE.Purity)
+  colnames(col_info) %>% stringr::str_replace_all("[_.]"," " ) ->
+    colnames(col_info) 
+  col_info$`paper Lauren Class`[is.na(col_info$`paper Lauren Class`)] <- "NA"
+```
+
+```{r, fig.height = 8, fig_width = 10, eval = T}
+res <- readRDS("/cwd/data/cache/res_reduced.rds")
+ #res_shrunk <- dds_shrunk
+filter_dat <-
+    data.frame(res) %>% dplyr::filter(padj < 0.05 &
+                                      abs(log2FoldChange) >2)
+
+GOI <- rownames(filter_dat)
+#dds_obj <- dds_red
+FABP_counts<- DESeq2::plotCounts(dds_obj, "FABP4", intgroup = "sarifa_group",returnData = T)
+ DESeq2::plotCounts(dds_obj, "FABP4", intgroup = "sarifa_group")
+DESeq2::plotCounts(dds_obj, "ADIPOQ", intgroup = "sarifa_group")
+DESeq2::plotCounts(dds_obj, "TUSC5", intgroup = "sarifa_group", transform = T)
+ggplot(FABP_counts,aes(x=sarifa_group, y = count))+ scale_y_log10() + geom_violin()
+
+
+vst <- assay(vst(dds_obj, blind = F))
+
+#GOI <- c("FABP4", "ADIPOQ", "FGA", "KRT4", "TUSC1")
+gene_data <- vst[GOI,] %>% t() %>% as.data.frame() %>% rownames_to_column("id")
+
+col_of_interest <- c(GOI, "ABSOLUTE Purity", "ESTIMATE score", "Stromal score")
+plot_data<- inner_join(gene_data, col_info, by = c("id" = "Row names y"))
+plot_data$`sarifa group`<- plot_data$`sarifa group` %>% forcats::fct_relevel("SARIFA")
+#plot_data %>% dplyr::select(all_of(col_of_interest)) %>% mutate(`paper ABSOLUTE Purity` = as.numeric(`paper ABSOLUTE Purity`)) %>%  corrr::correlate() -> gene_cor
+#small_cor <- gene_cor %>% dplyr::filter(term %in% c("paper ABSOLUTE Purity", "ESTIMATE score", "Stromal score"))
+#corrr::rplot(gene_cor,.order = "alphabet") + theme(axis.text.x = element_text(angle = 90, vjust #= 0.5, hjust=1))
+
+colnames(plot_data) %<>% str_remove("^paper ")
+colnames(plot_data)[duplicated(colnames(plot_data))] <- paste0("paper",
+                                                               colnames(plot_data)[duplicated(colnames(plot_data))]) 
+dodge <- position_dodge(width = 0.8)
+
+plot_F <- ggplot(plot_data, aes(x = FABP4, y = `Stromal score`)) + geom_point() + geom_smooth(method = "lm") +
+  annotate("text", x = min(plot_data$FABP4)+1, y = max(plot_data$`Stromal score`,na.rm = T)-1, 
+           label = paste0("Cor=", round(cor(plot_data$FABP4, plot_data$`Stromal score`, use = "complete.obs"),2))) + theme_bw()
+ggplot(plot_data, aes(x = ADIPOQ, y = `Stromal score`)) + geom_point() + geom_smooth(method = "lm") +
+  annotate("text", x = min(plot_data$ADIPOQ), y = max(plot_data$`Stromal score`,na.rm = T), 
+           label = paste0("Cor=", round(cor(plot_data$ADIPOQ, plot_data$`Stromal score`, use = "complete.obs"),2))) + theme_bw()
+ggplot(plot_data, aes(x = `Lauren Class`, y = FABP4, fill = `Lauren Class`)) + 
+   geom_violin() + 
+  geom_boxplot(width = 0.1) + theme_bw() + scale_fill_jco(alpha = 0.8)
+plot_E <- ggplot(plot_data, aes(x = `sarifa group`, y = FABP4, fill =  `Lauren Class`)) + 
+  geom_violin(position = dodge) + 
+  geom_boxplot(width = 0.1, position = dodge) + theme_bw() + scale_fill_jco(alpha = 0.8)
+plot_D<- ggplot(plot_data, aes(x = `sarifa group`, y = FABP4, fill = `sarifa group`)) +  geom_violin() + 
+  geom_boxplot(width = 0.1) +
+  theme_bw() +  scale_fill_npg(alpha = 0.8)
+```
+
+```{r, fig.height = 14, fig_width = 18, eval = F}
+gene_cor
+```
+
+```{R, fig.width = 12, fig.height = 10, eval = F}
+red_data <- table(col_info$sarifa_group, col_info$paper_Lauren.Class)
+red_data
+fisher.test(red_data[,c("Diffuse", "Intestinal")],)
+chisq.test(red_data[,c("Diffuse", "Intestinal")],)
+
+
+```
+
+```{r}
+set.seed(19464)
+get_deseq2_results <- function(dds) {
+  # Damit korrigieren wir die Richtung!!!!
+  contrast <- c("sarifa_group", "SARIFA", "NON_SARIFA")
+  res <- results(dds, contrast=contrast)
+  # LFC shrinkage entweder mit apeglm oder gar nicht weil gerade das "normal",
+  # umstritten ist. 
+  #res <- lfcShrink(dds, contrast=contrast, res=res, type="apeglm")
+  return(res)
+}
+create_gsea <- function(res, cat = "C2", subcat = "CP:REACTOME") {
+  # res_sig <- subset(res, res$padj < 0.05)
+  # res_sig <- subset(res_sig, abs(res_sig$log2FoldChange) > 1.0)
+  
+  # res_sig <- res_sig[order(res_sig$padj),]
+
+  # Hier alternative Approach für GSEA -> Wir multiplisieren mit dem vollen WErt der Logfoldchange. 
+  gene_list <- (- log10(res$pvalue)) * res$log2FoldChange
+  names(gene_list) <- rownames(res)
+  gene_list <- sort(gene_list, decreasing=TRUE)
+  # Und wir sollten mal das gesamte C2 testen weil nur CP hat jetzt kaum was ergeben
+  # TODO Vielleicht auch noch Hallmark "H"
+  gene_sets <- msigdbr::msigdbr(species="human", category=cat, subcategory=subcat)
+  gene_sets <- as.data.frame(dplyr::distinct(gene_sets, gs_name, ensembl_gene))
+
+  gene_symbols <- mapIds(edb, keys=names(gene_list), keytype="SYMBOL", column="GENEID", multiVals="first")
+  names(gene_list) <- make.unique(unlist(gene_symbols))
+
+  enrich_results <- clusterProfiler::GSEA(gene_list, TERM2GENE=gene_sets, eps = 0,seed = 45745823)
+
+  return(enrich_results)
+}
+library(clusterProfiler)
+res <- get_deseq2_results(dds_red)
+enrich_res <- create_gsea(res)
+hallmarks <- create_gsea(res, "H", "")
+res_table <- enrich_res@result %>% arrange(desc(NES)) %>% mutate(direction = fct_relevel(ifelse(NES >0, "up", "down"),"up")) %>% mutate(ID = str_replace_all(str_remove(ID,"^REACTOME_"), "_", " "))
+
+hallmark_table <- hallmarks@result %>% arrange(desc(NES)) %>% mutate(direction = fct_relevel(ifelse(NES >0, "up", "down"),"up"))  %>% mutate(ID = str_replace_all(ID, "_", " "))
+
+gsea_reactome<- ggplot(res_table, aes(x= fct_reorder(ID, NES), y=NES, fill = -log10(p.adjust))) + geom_col() +  
+  coord_flip() +   scale_fill_viridis(option = "H") +  labs(y = "Normalized Enrichment Score (NES)",
+                                          x = "Reactome Gene Set")+
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 30)) + theme_bw() +
+  theme(legend.position = "right",axis.text = element_text(size = 8)) +
+  scale_fill_viridis(option = "H", limits = c(0,11))
+
+gsea_hallmarck <- ggplot(hallmark_table, aes(x= fct_reorder(ID, NES), y=NES, fill = -log10(p.adjust))) + geom_col() +  
+  coord_flip() + labs(y = "Normalized Enrichment Score (NES)",
+                                          x = "Hallmark Gene Set") +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 25)) + theme_bw() +
+  theme(legend.position = "right",axis.text = element_text(size = 8,)) + 
+ scale_fill_viridis(option = "H", limits = c(0,11))
+
+gsea_reactome
+gsea_hallmarck
+```
+
+```{r, fig.height = 8, fig.width = 10}
+
+Volcanoplot <- EnhancedVolcano(res,lab = rownames(res), 
+                x = "log2FoldChange",
+                y = "padj", title = NULL, subtitle = NULL,ylab =bquote(~-Log[10] ~ italic(P.adj)),
+                pCutoff = 0.05, drawConnectors = TRUE,FCcutoff = 2,axisLabSize = 12, labSize = 3, legendLabSize = 18, legendPosition = "none",
+                caption = NULL
+)
+
+Volcanoplot
+```
+
+
+## Immune cell infiltration 
+
+To check whether SARIFA is associated with processes paired with immune cell infiltration
+data from TIMER https://academic.oup.com/nar/article/48/W1/W509/5842187?login=true
+
+
+```{r}
+read_csv("/cwd/data/infiltration_estimation_for_tcga.csv", name_repair = "universal") -> infil_table
+col_info %>% dplyr::select("sarifa group", "Sample ID", "paper Lauren Class", "Subtype" ) %>% left_join(infil_table, by = c("Sample ID" = "cell_type")) -> infil_full
+
+infil_full$`sarifa group`  <- infil_full$`sarifa group` %>% forcats::fct_relevel("SARIFA")
+```
+
+```{r, fig.height = 8, fig.width = 8}
+comp_groups <- list(c("SARIFA", "NON_SARIFA"))
+
+infil_full %>% tidyr::pivot_longer(!`sarifa group` & !`Sample ID` & !`paper Lauren Class` &
+                              !Subtype, names_to = "cell_type", values_to = "score") -> infil_pivot
+
+for (a_type in c("CIBERSORT.ABS", "QUANTISEQ", "TIMER", "MCPCOUNTER", "XCELL", "EPIC")) {
+  plot_data <- infil_pivot %>% dplyr::filter(str_detect(cell_type, 
+                                                        glue::glue("{a_type}$")))
+  p <- ggplot(plot_data, aes(x = `sarifa group`, y = score))  +
+         geom_boxplot(aes(fill = `sarifa group`)) + facet_wrap(~cell_type,scales = "free_y") +
+    theme(strip.background = element_blank(), strip.placement = "outside") +
+  geom_signif(comparisons = list(c("SARIFA", "NON_SARIFA")), test = "t.test")
+  print(p)
+} 
+```
+
+
+```{r, eval = FALSE}
+
+STAD_SE <- readRDS("/cwd/data/STAD_summarized_exp.RDS.gz")
+expr_mat <- assays(STAD_SE)$tpm_unstrand
+rownames(expr_mat) <- rowData(STAD_SE)$gene_name
+expr_mat <- expr_mat[,colnames(expr_mat) %in% col_info$barcode]
+expr_mat <- expr_mat[rowSums(expr_mat) != 0,]
+expr_mat <- expr_mat[!duplicated(rownames(expr_mat)),]
+set_cibersort_binary("./CIBERSORT.R")
+set_cibersort_mat("./LM22.txt")
+ 
+
+run_deconvolution <- function(tpm_mat) {
+  deconv_res <- list()
+  HGNC <- read.csv(
+  system.file("extdata", "HGNC_genenames_20170418.txt.gz", package = "quantiseqr", mustWork = TRUE),
+  header = TRUE, sep = "\t"
+  )
+
+  deconv_res$quantiseq <- deconvolute(expr_mat[rownames(expr_mat) %in% (HGNC %>% 
+                                               dplyr::filter(Status == "Approved") %>%
+                                                 pull(ApprovedSymbol)) ,], 
+                                      "quantiseq",
+                                      tumor = TRUE,)
+  deconv_res$timer <- immunedeconv::deconvolute(tpm_mat, "timer", 
+                                              indications = c(rep("stad",ncol(tpm_mat))))
+  deconv_res$consensus_tme <- immunedeconv::deconvolute(tpm_mat, "consensus_tme", 
+                                              indications = c(rep("stad",ncol(tpm_mat))))
+  deconv_res$epic <- immunedeconv::deconvolute(tpm_mat, "epic",tumor = T)
+
+  
+  deconv_res$mcp_count <- immunedeconv::deconvolute(log2(tpm_mat + 1), "mcp_counter",)
+  
+  #deconv_res$cibersort <- immunedeconv::deconvolute_cibersort(tpm_mat, absolute =T, arrays = F)
+  
+  deconv_res$xcell <- immunedeconv::deconvolute(tpm_mat, "xcell")
+
+  #transformed_mat<- biomartsucks(tpm_mat)
+  
+  deconv_res
+}
+
+aging_res <- run_deconvolution(expr_mat) 
+  
+  
+
+```
+
+
+```{r,fig.height=10, fig.width=12, eval = F}
+plot_immdecon <- function(plot_data, test_var = "sarifa") {
+    plot_data %>% group_by(cell_type) %>% 
+    summarize(results = t.test( score~ !!sym(test_var),paired = F,var.equal = T)$p.value) %>% 
+    mutate(results = p.adjust(results, method = "BH")) -> p_values
+    if(nrow(p_values) > 15) {
+      p_values %>% mutate(results = case_when(results > 0.1 ~ "NS",
+                                              results <= 0.1 & results > 0.01 ~ "*",
+                                              results <= 0.01 & results > 0.001 ~"**",
+                                              results <= 0.001 ~"***") 
+                          )-> p_values
+    } else {
+      p_values$results <- round(p_values$results, 2)
+    }
+    x_min <- 1:nrow(p_values) -0.2
+    x_max <- 1:nrow(p_values) +0.2
+    
+    ggplot(data= plot_data, aes(x = cell_type, y = score,fill = !!sym(test_var))) +
+           geom_boxplot(position = "dodge") +
+     theme_bw() + geom_signif(xmin=x_min, xmax =x_max,tip_length = 0,
+                              annotations = p_values$results,
+                               y_position = rep(max(plot_data$score,
+                                               na.rm = T)-max(plot_data$score,na.rm = T)*0.01,
+                              nrow(p_values)),map_signif_level = T) +  
+    scale_x_discrete(guide = guide_axis(angle = 90))
+  
+}
+
+create_res_plots <- function(imm_res, test_var = "sarifa") {
+  sarifa_vector <- setNames(col_info$`sarifa group`, nm = col_info$barcode) %>%  forcats::fct_relevel("SARIFA")
+  subtype_vector <- setNames(col_info$Subtype, nm = col_info$barcode)
+  lauren_vector <- setNames(col_info$`paper Lauren Class`, nm = col_info$barcode)
+  #purrr::map(aging_res, create_res_plots)
+#  imm_res <- rbind(imm_res, c(sarifa_vector[colnames(imm_res)]),
+#                   subtype_vector[colnames(imm_res)])
+#  imm_res$cell_type[length(imm_res$cell_type)] <- "sarifa"
+  imm_res %>% tidyr::pivot_longer(-1) %>% pivot_wider(names_from = 1, values_from = value) -> mr_pivot
+  mr_pivot$sarifa <- sarifa_vector[mr_pivot$name]
+  mr_pivot <- mr_pivot %>% dplyr::filter(!is.na(sarifa))
+  mr_pivot$subtype <- subtype_vector[mr_pivot$name]
+  mr_pivot$lauren <- lauren_vector[mr_pivot$name]
+  mr_pivot %>% group_by(!!sym(test_var)) %>% pivot_longer(!name & !sarifa &  !subtype & !lauren, names_to = "cell_type", values_to = "score") -> plot_data
+  plot_immdecon(plot_data, test_var = test_var)
+}
+
+purrr::map(aging_res, create_res_plots, test_var = "sarifa")
+```
+
+
+```{r, fig.height=10, fig.width=12, eval = F}
+sarifa_vector <- setNames(col_info$`sarifa group`, nm = col_info$barcode) %>%  forcats::fct_relevel("SARIFA")
+ciber_yeet<- read_csv("/cwd/data/CIBERSORTx_Job5_Results.csv")
+ciber_yeet$SARIFA <- sarifa_vector[ciber_yeet$Mixture]
+
+ciber_yeet %>% select(-RMSE, -Correlation, - `P-value`, -`Absolute score (sig.score)`) %>%
+  dplyr::filter(!is.na(SARIFA)) %>%
+  dplyr::rename(name = Mixture) -> ciber_yeet
+
+ ciber_yeet %>% group_by(SARIFA) %>% tidyr::pivot_longer(!name & !SARIFA , names_to = "cell_type", values_to = "score") -> plot_data_ciber
+ 
+ plot_immdecon(plot_data_ciber, test_var = "SARIFA")
+ 
+ 
+
+```
+
+
+```{r}
+tcga_ecotyper <- read_tsv("/cwd/data/TCGA_cell_state_assignments.tsv")
+tcga_ecotyper %>% dplyr::filter(Histology == "STAD") -> STAD_data
+sarifa_vector <- setNames(col_info$`sarifa group`, nm = col_info$barcode) %>%  forcats::fct_relevel("SARIFA")
+
+names(sarifa_vector) <- str_replace_all(names(sarifa_vector), "-", ".")
+
+STAD_data$SARIFA <- sarifa_vector[STAD_data$TCGA_ID] 
+
+STAD_data %>% dplyr::filter(!is.na(SARIFA)) %>% group_by(SARIFA)-> STAD_data
+
+
+```
+
+
+### PCA plots
+
+ Here we analyze the PCA plots from SARIFA for their activitiy
+```{r}
+pca_data <- assay(vst(dds_red, blind = F))
+plotPCA(vst(dds_red), intgroup = c("sarifa_group", "paper_Lauren.Class"))
+p <- pca(pca_data, metadata = colData(dds_red), removeVar = 0.5)
+```
+
+```{r, fig.height = 8, fig.width=12}
+screeplot(p, axisLabSize = 18, titleLabSize = 22,components = paste0("PC", 1:30))
+
+biplot(p, pointSize = 5, sizeLoadingsNames = 5, colby = "sarifa_group", shape = "paper_Lauren.Class" , 
+       legendPosition = "bottom", lab = NULL, showLoadings = TRUE, ntopLoadings = 3,)
+```
+
+
+```{r,fig.width = 12}
+dds_red$paper_ABSOLUTE.Ploidy <- as.numeric(dds_red$paper_ABSOLUTE.Ploidy)
+eigencorplot(p,
+    metavars = c('paper_Lauren.Class','sarifa_group', "paper_ABSOLUTE.Purity",
+                 "paper_Gene.Expression.Cluster", "paper_Molecular.Subtype"),
+    components = getComponents(p, seq_len(20)))
+
+
+```
+
+```{r,fig.height = 8, fig.width=12}
+
+biplot(p, pointSize = 5, sizeLoadingsNames = 5, colby = "paper_Gene.Expression.Cluster", shape = "sarifa_group" , 
+       legendPosition = "bottom", lab = NULL, showLoadings = TRUE, ntopLoadings = 3,)
+
+```
+
+```{r Figure 3, fig.width=8, fig.height = 6}
+genomic_alterations <- readr::read_tsv("/cwd/data/alteration_percentage.tsv")
+genomic_alterations %>% mutate(`Log Ratio` = as.numeric(str_replace(`Log Ratio`,"[<>]","")))  -> genomic_alterations
+plot_data <- purrr::modify(genomic_alterations[,c(3,4)], stringr::str_extract, pattern = "\\d*.\\d*(?=%)") %>%
+  mutate_all(as.numeric)
+colnames(plot_data) <- c("NON-SARIFA", "SARIFA")
+plot_data_small <- plot_data %>% dplyr::filter(SARIFA > 10 | `NON-SARIFA` > 10 )
+variants_scatter<- ggplot(plot_data_small, aes(x =SARIFA, y = `NON-SARIFA`)) +  
+ geom_point(position = "jitter",alpha = 0.6,) + scale_color_viridis_c()+
+  theme_bw() + lims(x = c(0,100), y = c(0,100)) + 
+  labs(x = "SARIFA (%)",y = "NON_SARIFA (%)") + 
+  theme(axis.text = element_text(size = 12), 
+        axis.title = element_text(size = 14))    
+
+
+
+q_val_plot <- ggplot(genomic_alterations, aes(x = `q-Value`)) + geom_freqpoly() + theme_bw()+ xlim(c(0,1))
+ggsave("/cwd/data/plots/Fig3b_variants_scatter.svg", variants_scatter)
+#ggsave("plots/gene_qvals.svg", q_val_plot)
+
+variants_scatter
+q_val_plot
+```
+
+```{r Figure 4, fig.width=13, fig.height=15}
+library(cowplot)
+cols <- 3
+rows <- 3
+font_size = 11
+
+standard_theme<- theme(axis.text = element_text(size = font_size),
+                                    axis.title = element_text(size = font_size),
+                                    legend.text=element_text(size=11),
+                                    legend.title = element_text(size = 11),) 
+
+nes_fontsize <- 9
+plot_A <- Volcanoplot
+plot_B_one <- gsea_hallmarck + theme(legend.position = "none", axis.text = element_text(size=nes_fontsize),  axis.title = element_text(size = nes_fontsize))# +  standard_theme
+plot_B_two <- gsea_reactome+   theme(axis.text = element_text(size=nes_fontsize), axis.title = element_text(size = nes_fontsize), 
+                                     legend.text = element_text(size = nes_fontsize), legend.title = element_text(size=nes_fontsize))
+plot_C <- grid.grabExpr(draw(x$resstrict))
+
+plot_D <- plot_D + standard_theme  
+plot_E <- plot_E +   standard_theme  
+plot_F <- plot_F +  standard_theme
+
+fig_4_fontsize <-24
+figure_4 <- plot_grid(plot_grid(plot_A, plot_B_one, plot_B_two, nrow = 1,
+                                labels = c("A", "B", ""), label_size = fig_4_fontsize,
+                                label_fontface = "plain",
+                                rel_widths = c(1.5,1,1.3)), 
+                      plot_C, 
+                      plot_grid(plot_D, plot_E, plot_F, nrow = 1, labels = c("D", "E", "F"),
+                                label_size = fig_4_fontsize, label_fontface = "plain")
+                      , ncol = 1, labels = c("", "C", ""), label_size = fig_4_fontsize, 
+                      label_fontface = "plain",
+                      rel_heights = c(1,2,1))
+
+dir.create("/cwd/data/plots", recursive = T)
+ggsave("/cwd/data/plots/figure_4_small.svg", plot = figure_4, width = 13, height = 15)
+ggsave("/cwd/data/plots/figure_4.png", plot = figure_4, width =  13 , height = 15)
+figure_4
+```

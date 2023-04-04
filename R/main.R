@@ -105,7 +105,8 @@ create_DESeqDataSet <- function(reduced) {
   dds <- dds[rowSums(counts(dds)) >= 200,]
 
   dds <- DESeq2::DESeq(dds)
-
+  rm(stad_se)
+  gc()
   return(dds)
 }
 
@@ -145,19 +146,19 @@ create_gsea <- function(res) {
 
 # cache$get()
 
-dds_reduced <- cache$get("dds_reduced")
-if(is.key_missing(dds_reduced)) {
-  dds_reduced <- create_DESeqDataSet(TRUE)
-  cache$set("dds_reduced", dds_reduced)
-}
-dds_reduced <- assign_symbols_to_DESeqDataSet(dds_reduced)
+#dds_reduced <- cache$get("dds_reduced")
+#if(is.key_missing(dds_reduced)) {
+#  dds_reduced <- create_DESeqDataSet(TRUE)
+#  cache$set("dds_reduced", dds_reduced)
+#}
+#dds_reduced <- assign_symbols_to_DESeqDataSet(dds_reduced)
 
-res_reduced <- cache$get("res_reduced")
-if(is.key_missing(res_reduced)) {
-  res_reduced <- get_deseq2_results(dds_reduced)
-  cache$set("res_reduced", res_reduced)
-}
-enrich_res_reduced <- create_gsea(res_reduced)
+#res_reduced <- cache$get("res_reduced")
+#if(is.key_missing(res_reduced)) {
+#  res_reduced <- get_deseq2_results(dds_reduced)
+#  cache$set("res_reduced", res_reduced)
+#}
+#enrich_res_reduced <- create_gsea(res_reduced)
 
 
 
@@ -176,7 +177,7 @@ if(is.key_missing(res_strict)) {
 enrich_res_strict <- create_gsea(res_strict)
 
 
-plot_deseq_results(dds_reduced, res_reduced, enrich_res_reduced, "/cwd/data/results/reduced/")
+#plot_deseq_results(dds_reduced, res_reduced, enrich_res_reduced, "/cwd/data/results/reduced/")
 plot_deseq_results(dds_strict, res_strict, enrich_res_strict, "/cwd/data/results/strict/")
 
 #plot_export_compare_results(res_reduced, res_strict, "/cwd/data/results/")
@@ -188,3 +189,4 @@ plot_deseq_results(dds_strict, res_strict, enrich_res_strict, "/cwd/data/results
 # export_butchr_input(dds_reduced, res_reduced, "/cwd/data/results/reduced/")
 # export_butchr_input(dds_strict, res_strict, "/cwd/data/results/strict/")
 
+rmarkdown::render("/cwd/code/SARIFA_test.Rmd")

@@ -1,0 +1,133 @@
+---
+title: "SARIFA vs TCGA Stroma"
+author: "Christian Heyer"
+date: "2/3/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,dev = "svglite")
+library(tidyverse)
+library(ggsci)
+```
+
+```{r cars}
+SARIFA_klasses <- readxl::read_xlsx("/cwd/data/stad_tcga_pan_can_atlas_2018_clinical_data_bg.xlsx")
+
+STROMA_scores <- readr::read_tsv("https://bioinformatics.mdanderson.org/estimate/tables/stomach_adenocarcinoma_RNAseqV2.txt")
+
+SARIFA_vs_STROMA <- inner_join(SARIFA_klasses, STROMA_scores, by = c("Sample ID" = "ID")) %>% select("Patient ID", "SARIFA...3", "SARIFA...4", "Stromal_score", "Immune_score", "ESTIMATE_score")
+
+ SARIFA_vs_STROMA$SARIFA...3<- SARIFA_vs_STROMA$SARIFA...3 %>% recode("0" = "NON-SARIFA", "1" = "SARIFA", "3" = "prob. NON-SARIFA", "NA" = "unclear", "NV" = "no data", "4" = "unclear") %>% forcats::fct_relevel("SARIFA")
+
+ SARIFA_vs_STROMA$SARIFA...4<- SARIFA_vs_STROMA$SARIFA...4 %>% recode("0" = "NON-SARIFA", "1" = "SARIFA", "3" = "prob. NON-SARIFA", "NA" = "unclear", "NV" = "no data", "4" = "unclear") %>% forcats::fct_relevel("SARIFA")
+
+SARIFA_vs_STROMA %>% filter(`SARIFA...3` %in% c("SARIFA", "NON-SARIFA")) -> SARIFA_vs_STROMA
+```
+
+## SARIFA strict
+
+```{r pressure, echo=FALSE}
+map_signif <- F
+comp_groups <- list(c("SARIFA", "NON-SARIFA"))
+ggplot(data = SARIFA_vs_STROMA, aes(
+  x = as.factor(`SARIFA...3`), y = Stromal_score, 
+  fill = `SARIFA...3`
+)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1) +
+  ggsignif::geom_signif(
+    comparison = comp_groups,
+    map_signif_level = map_signif, step_increase = 0.05, test = "t.test"
+  ) + xlab("SARIFA groups") + theme_bw() + guides(x =  guide_axis(angle = 45)) + labs(fill = "SARIFA groups") + scale_fill_npg(alpha = 0.8)
+
+ggplot(data = SARIFA_vs_STROMA, aes(
+  x = as.factor(`SARIFA...3`), y = Immune_score,
+  fill = `SARIFA...3`
+)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1) +
+  ggsignif::geom_signif(
+    comparison = comp_groups,
+    map_signif_level = map_signif, step_increase = 0.05
+  ) + xlab("SARIFA groups") + theme_bw() + guides(x =  guide_axis(angle = 45)) + labs(fill = "SARIFA groups")
+
+ggplot(data = SARIFA_vs_STROMA, aes(
+  x = as.factor(`SARIFA...3`), y = ESTIMATE_score,
+  fill = `SARIFA...3`
+)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1) +
+  ggsignif::geom_signif(
+    comparison = comp_groups,
+    map_signif_level = map_signif, step_increase = 0.05
+  ) + xlab("SARIFA groups") + theme_bw() + guides(x =  guide_axis(angle = 45)) + labs(fill = "SARIFA groups")
+
+
+```
+
+## SARIFA reduced
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r strict, echo=FALSE}
+comp_groups <- list(c("NON-SARIFA", "SARIFA"))
+
+ggplot(data = SARIFA_vs_STROMA, aes(
+  x = as.factor(`SARIFA...4`), y = Stromal_score,
+  fill = `SARIFA...4`
+)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1) +
+  ggsignif::geom_signif(
+    comparison = comp_groups,
+    map_signif_level = map_signif, step_increase = 0.05, test = "wilcox.test"
+  ) + xlab("SARIFA groups") +   theme_bw() + guides(x =  guide_axis(angle = 45)) + labs(fill = "SARIFA groups")
+
+ggplot(data = SARIFA_vs_STROMA, aes(
+  x = as.factor(`SARIFA...4`), y = Immune_score,
+  fill = `SARIFA...4`
+)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1) +
+  ggsignif::geom_signif(
+    comparison = comp_groups,
+    map_signif_level = map_signif, step_increase = 0.05, test = "wilcox.test"
+  ) + xlab("SARIFA groups") +   theme_bw() + guides(x =  guide_axis(angle = 45)) + labs(fill = "SARIFA groups")
+
+ggplot(data = SARIFA_vs_STROMA, aes(
+  x = as.factor(`SARIFA...4`), y = ESTIMATE_score,
+  fill = `SARIFA...4`
+)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1) +
+  ggsignif::geom_signif(
+    comparison = comp_groups,
+    map_signif_level = map_signif, step_increase = 0.05, test = "wilcox.test"
+  ) + xlab("SARIFA groups") +   theme_bw() + guides(x =  guide_axis(angle = 45)) + labs(fill = "SARIFA groups")
+
+
+```
+
+
+```{r, fig.width=8, fig.height = 6}
+genomic_alterations <- readr::read_tsv("/cwd/data/alteration_percentage.tsv")
+genomic_alterations %>% mutate(`Log Ratio` = as.numeric(str_replace(`Log Ratio`,"[<>]","")))  -> genomic_alterations
+plot_data <- modify(genomic_alterations[,c(3,4)], stringr::str_extract, pattern = "\\d*.\\d*(?=%)") %>%
+  mutate_all(as.numeric)
+colnames(plot_data) <- c("NON-SARIFA", "SARIFA")
+plot_data_small <- plot_data %>% dplyr::filter(SARIFA > 10 | `NON-SARIFA` > 10 )
+variants_scatter<- ggplot(plot_data_small, aes(x =SARIFA, y = `NON-SARIFA`)) +  
+ geom_point(position = "jitter",alpha = 0.6,) + scale_color_viridis_c()+
+  theme_bw() + lims(x = c(0,100), y = c(0,100)) + 
+  labs(x = "SARIFA (%)",y = "NON_SARIFA (%)")
+
+
+
+q_val_plot <- ggplot(genomic_alterations, aes(x = `q-Value`)) + geom_freqpoly() + theme_bw()+ xlim(c(0,1))
+ggsave("/cwd/data/plots/variants_scatter.svg", variants_scatter)
+ggsave("/cwd/data/plots/gene_qvals.svg", q_val_plot)
+
+variants_scatter
+q_val_plot
+```
