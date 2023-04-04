@@ -17,7 +17,6 @@ library(ggsci)
 library(viridis)
 library(ggsignif)
 library(PCAtools)
-#library(immunedeconv)
 library(EnhancedVolcano)
 library(forcats)
 library(readr)
@@ -29,19 +28,24 @@ assign_symbols_to_DESeqDataSet <- function(dds) {
   # Use ensb as symbol
   gene_ids <- stringr::str_replace(rownames(dds), "[.][0-9]*$", "")
 
-  gene_names <- mapIds(edb, keys=gene_ids, keytype="GENEID", column="SYMBOL", multiVals="first")
+  gene_names <- mapIds(edb, keys=gene_ids, keytype = "GENEID", column = "SYMBOL",
+                       multiVals = "first")
 
   # Polyfill gene names with ids
-  gene_names[sapply(gene_names, function(x) length(x) == 0 || is.na(x))] = gene_ids[sapply(gene_names, function(x) length(x) == 0 || is.na(x))]
+  gene_names[sapply(gene_names, 
+                    function(x) length(x) == 0 || is.na(x))] <-
+                      gene_ids[sapply(gene_names,
+                                       function(x) length(x) == 0 || is.na(x))]
 
-  rownames(dds) = make.unique(unlist(gene_names))
+  rownames(dds) <- make.unique(unlist(gene_names))
 
   return(dds)
 }
 
 ```
 
-```{r cars}
+
+```{r read data}
 dds_red <- readRDS("/cwd/data/cache/dds_reduced.rds")
 dds_red <- assign_symbols_to_DESeqDataSet(dds_red) 
 SARIFA_klasses <- readxl::read_xlsx("/cwd/data/stad_tcga_pan_can_atlas_2018_clinical_data_bg.xlsx")
@@ -80,27 +84,31 @@ sarifa_group_list <- purrr::map_chr(colData(dds_red)$patient, function(patient_i
 
 ## Heatmaps
 
-You can also embed plots, for example:
+Heatmaps from the TCGA STAD data of differentially expressed genes bewteen 
+SARIFA and NON-SARIFA samples. LFC cutoff at 2 and p.adj at 0.05. Expression
+values were Z-score normalized at a gene level. 
 
 ```{r Heatmap, echo=FALSE, fig.height = 7.5, fig.width = 9}
 build_hm <- function(dds_obj, create_butchr_input = FALSE, col_fun =  circlize::colorRamp2(c(-2, 0, 4), c("blue", "white", "red"))) {
   hm_list <- list()
   dds_rlog <- vst(dds_obj)
   col_info <- colData(dds_obj)
-  col_info <- dplyr::inner_join(as_tibble(col_info), stad_sarifa_cats, by = c("patient" = "Patient ID"))
-  #col_info <- dplyr::left_join(col_info,  STROMA_scores, by = c("Sample ID" = "ID") )
-  
+  col_info <- dplyr::inner_join(as_tibble(col_info), stad_sarifa_cats, 
+                                by = c("patient" = "Patient ID"))
   # Modify colinfo for plotting
   col_info$paper_ABSOLUTE.Purity <- as.numeric(col_info$paper_ABSOLUTE.Purity)
-  colnames(col_info) %>% stringr::str_replace_all("[_.]"," " ) %>% str_remove("^paper ")->
+
+  colnames(col_info) %>% stringr::str_replace_all("[_.]"," " ) %>% 
+    str_remove("^paper ") ->
     colnames(col_info) 
-  print(colnames(col_info))
+
 
   col_info$`Lauren Class`[is.na(col_info$`Lauren Class`)] <- "NA"
-  col_info$`sarifa group` <- col_info$`sarifa group` %>% forcats::fct_relevel("SARIFA")
+  col_info$`sarifa group` <- col_info$`sarifa group` %>% 
+        forcats::fct_relevel("SARIFA")
   
   
-  x <- ComplexHeatmap::columnAnnotation(
+  heatmap_anno <- ComplexHeatmap::columnAnnotation(
       df = data.frame(col_info[,c("sarifa group",#"ABSOLUTE Purity",
                                   "Subtype",
                                   "ESTIMATE score",
@@ -111,19 +119,25 @@ build_hm <- function(dds_obj, create_butchr_input = FALSE, col_fun =  circlize::
         `sarifa.group` = rlang::set_names( x = ggsci::pal_npg("nrc", alpha  = 0.9)(2),
          nm = c("SARIFA", "NON_SARIFA")
       ), 
-      `Immune.score` = circlize::colorRamp2(c(min(col_info$`Immune score`,na.rm = T),
+      `Immune.score` = circlize::colorRamp2(c(min(col_info$`Immune score`,
+                                                  na.rm = T),
                                             0,
-                                            max(col_info$`Immune score`, na.rm =T)),
+                                            max(col_info$`Immune score`, 
+                                                na.rm =T)),
                                             c("blue", "white","red")),
-      `ESTIMATE.score` = circlize::colorRamp2(c(min(col_info$`ESTIMATE score`, na.rm =T),
+      `ESTIMATE.score` = circlize::colorRamp2(c(min(col_info$`ESTIMATE score`,
+                                                    na.rm =T),
                                             0,
-                                            max(col_info$`ESTIMATE score`, na.rm = T)),
+                                            max(col_info$`ESTIMATE score`,
+                                                na.rm = T)),
                                             c("blue", "white","red")),
-      `Stromal.score` = circlize::colorRamp2(c(min(col_info$`Stromal score`, na.rm = T),
+      `Stromal.score` = circlize::colorRamp2(c(min(col_info$`Stromal score`,
+                                                   na.rm = T),
                                             0,
-                                            max(col_info$`Stromal score`, na.rm = T)),
-                                            c("blue", "white","red")),
-  #    ABSOLUTE.Purity = circlize::colorRamp2(seq(0,100,1), viridis::viridis(101)),
+                                            max(col_info$`Stromal score`,
+                                                na.rm = T)),
+                                            c("blue", "white", "red")),
+
       Subtype = rlang::set_names(x = RColorBrewer::brewer.pal(length(unique(col_info$Subtype)),
                                                               "Set1"),
                                 nm = unique(col_info$Subtype)),
@@ -134,127 +148,134 @@ build_hm <- function(dds_obj, create_butchr_input = FALSE, col_fun =  circlize::
     ), gp = gpar(fontsize = 15))
 
   vst_data <- assay(dds_rlog)
-  
-  var_vec <- apply(vst_data, 1,var)
-  vec_order <- order(var_vec, decreasing = T)
-  vst_small <- vst_data[vec_order[1:5000],]
-  print(colnames(col_info))
- # colnames(col_info)[72] <- "patient paper"
+
+  # Deduplicate duplicated column names
   colnames(col_info)[duplicated(colnames(col_info))] <- paste0(colnames(col_info)[duplicated(colnames(col_info))], "_1")
-  col_info_red <- col_info %>% as.data.frame()%>% dplyr::select(-c("treatments", "primary site","disease type"))
-  col_info_red %<>% dplyr::mutate(dplyr::across(c("ABSOLUTE Purity", `Percent Tumor Nuclei`,),
+  col_info_red <- col_info %>% as.data.frame()%>% 
+                  dplyr::select(-c("treatments", "primary site","disease type"))
+  col_info_red %<>% dplyr::mutate(dplyr::across(c("ABSOLUTE Purity",
+                                                  `Percent Tumor Nuclei`, ),
                                                 as.numeric))
   readr::write_csv(data.frame(col_info_red), file = "TCGA_colinfo.csv")
   saveRDS(col_info_red, file = "TCGA_colinfo.RDS")
-  saveRDS(vst_small, file = "TCGA_vst_mat.RDS")
-  
+
 
   res <- readRDS("/cwd/data/cache/res_reduced.rds")
- #res_shrunk <- dds_shrunk
   filter_dat <-
     data.frame(res) %>% dplyr::filter(padj < 0.05 &
                                       abs(log2FoldChange) > 2)
 
   vst_filtered <-
     vst_data[rownames(vst_data) %in% rownames(filter_dat), ]
+
   saveRDS(vst_filtered, "diffxp_vst.RDS")
   vst_diffexp <- t(scale(t(vst_filtered), scale = T))
-  
-  hm_list$topvar <-   Heatmap(vst_filtered, 
-                              show_column_names = F, 
-                              show_row_names = T, 
-                              top_annotation = x,
-                            heatmap_legend_param = list(
-      title = "expr. level"
-#      at = c(-2,0,2)
-    ),
-     clustering_method_columns = "ward.D",
-  clustering_method_rows = "ward.D",
-  clustering_distance_rows = "euclidean",
-  clustering_distance_columns = "euclidean",
+
+  hm_list$topvar <-   Heatmap(vst_filtered,
+                              show_column_names = FALSE,
+                              show_row_names = TRUE,
+                              top_annotation = heatmap_anno,
+                              heatmap_legend_param = list(
+                                                        title = "expr. level"
+                              ),
+      clustering_method_columns = "ward.D",
+      clustering_method_rows = "ward.D",
+      clustering_distance_rows = "euclidean",
+      clustering_distance_columns = "euclidean",
     )
-  
+
   hm_list$resred <- Heatmap(
     vst_diffexp,
-  show_column_names = F,
-  show_row_names = T,
-  clustering_method_columns = "ward.D",
-  clustering_method_rows = "ward.D",
-  clustering_distance_rows = "euclidean",
-  clustering_distance_columns = "euclidean",
-  row_names_gp = gpar(fontsize = 7),
-  column_names_gp = gpar(fontsize = 7),
-  column_names_rot = 85,
-  top_annotation = x,
-  heatmap_legend_param = list(
+    show_column_names = FALSE,
+    show_row_names = TRUE,
+    clustering_method_columns = "ward.D",
+    clustering_method_rows = "ward.D",
+    clustering_distance_rows = "euclidean",
+    clustering_distance_columns = "euclidean",
+    row_names_gp = gpar(fontsize = 7),
+    column_names_gp = gpar(fontsize = 7),
+    column_names_rot = 85,
+    top_annotation = heatmap_anno,
+    heatmap_legend_param = list(
       title = "expr. level",
       legend_gp = gpar(fontsize = 12)
-#      at = c(-2,0,2)
     )
   )
+
   res <- readRDS("/cwd/data/cache/res_strict.rds")
-  filter_dat <- data.frame(res) %>% dplyr::filter(padj < 0.05 & abs(log2FoldChange) > 2
+  filter_dat <- data.frame(res) %>% 
+    dplyr::filter(padj < 0.05 & abs(log2FoldChange) > 2
                                                 )
 
-  vst_filtered <- vst_data[rownames(vst_data) %in% rownames(filter_dat),]
-  vst_diffexp <- t(scale(t(vst_filtered), scale = T))
+  vst_filtered <- vst_data[rownames(vst_data) %in% rownames(filter_dat), ]
+  vst_diffexp <- t(scale(t(vst_filtered), scale = TRUE))
   hm_list$resstrict<- Heatmap(
     vst_diffexp,
     col = col_fun,
-    show_column_names = F,
-    show_row_names = T,
+    show_column_names = FALSE,
+    show_row_names = TRUE,
     clustering_method_columns = "ward.D",
     row_names_gp = gpar(fontsize =11),
     column_names_gp = gpar(fontsize = 7),
     column_names_rot = 85,
-    top_annotation = x,
+    top_annotation = heatmap_anno,
     column_dend_height = unit(20, "mm"),
     row_dend_width = unit(20, "mm"),
     heatmap_legend_param = list(
       title = "Z-score",
       labels_gp = gpar(fontsize = 10),
       legend_gp = gpar(fontsize = 10),
-      title_gp = gpar(fontsize = 11),
-      labels_gp = gpar(fontsize= 11)
-#      at = c(-2,0,2)
+      title_gp  = gpar(fontsize = 11),
+      labels_gp = gpar(fontsize = 11)
     )
-  
 )
   return(hm_list)
 }
 
-yeeter <-build_hm(dds_red)
-x <- purrr::map(yeeter, draw, annotation_legend_side = "left",padding = unit(c(2,2,2,2),"mm"))
 ```
 
-### Strict
 
-```{r, fig.width =8, fig.height=9}
+```{r reduced SARIFA classification, eval = TRUE}
+
+sarifa_red_heatmap <- build_hm(dds_red)
+sarifa_red_figure <- purrr::map(sarifa_red_heatmap, draw, 
+                annotation_legend_side = "left",
+                padding = unit(c(2, 2, 2, 2), "mm"))
+```
+
+
+```{r Strict SARIFA classification, fig.width =8, fig.height=9}
 dds_strict <- readRDS("/cwd/data/cache/dds_strict.rds")
 dds_strict <- assign_symbols_to_DESeqDataSet(dds_strict)
 hms <- build_hm(dds_strict)
-sink_var <- purrr::map(hms, draw, annotation_legend_side = "left",padding = unit(c(2,2,2,2),"mm"))
+sarifa_strict_figure <- purrr::map(hms, draw, 
+  annotation_legend_side = "left", padding = unit(c(2, 2, 2, 2), "mm"))
 ```
 
 # Create Column Annotation for COmplexheatmap
 
 
-```{r, fig.height = 8, fig.width = 10, eval = T}
+```{r, fig.height = 8, fig.width = 10, eval = TRUE}
 dds_obj <- dds_red
 col_info <- colData(dds_obj)
   col_info <- inner_join(as_tibble(col_info), SARIFA_klasses, by = c("patient" = "Patient ID"))
-  #col_info <- left_join(col_info,  STROMA_scores, by = c("Sample ID" = "ID") )
-  
-  col_info$paper_ABSOLUTE.Purity <- as.numeric(col_info$paper_ABSOLUTE.Purity)
-  
 
   col_info$paper_ABSOLUTE.Purity <- as.numeric(col_info$paper_ABSOLUTE.Purity)
-  colnames(col_info) %>% stringr::str_replace_all("[_.]"," " ) ->
-    colnames(col_info) 
+
+
+  col_info$paper_ABSOLUTE.Purity <- as.numeric(col_info$paper_ABSOLUTE.Purity)
+  colnames(col_info) %<>% stringr::str_replace_all("[_.]", " ")
   col_info$`paper Lauren Class`[is.na(col_info$`paper Lauren Class`)] <- "NA"
 ```
 
-```{r, fig.height = 8, fig_width = 10, eval = T}
+## Analysis of Genes of genes of interest
+
+In this section we analyze the resulsts of the DESeq2 analysis in respect 
+to top DE genes. Further we correlate the expression of these genes with the 
+ESTIMATE Analysis to demonstrate how expression is correlated with tumor purity and
+the presence of other cells in the samples. 
+
+```{r, fig.height = 8, fig_width = 10, eval = TRUE}
 res <- readRDS("/cwd/data/cache/res_reduced.rds")
  #res_shrunk <- dds_shrunk
 filter_dat <-
@@ -262,9 +283,11 @@ filter_dat <-
                                       abs(log2FoldChange) >2)
 
 GOI <- rownames(filter_dat)
-#dds_obj <- dds_red
-FABP_counts<- DESeq2::plotCounts(dds_obj, "FABP4", intgroup = "sarifa_group",returnData = T)
- DESeq2::plotCounts(dds_obj, "FABP4", intgroup = "sarifa_group")
+FABP_counts<- DESeq2::plotCounts(dds_obj, 
+                                 "FABP4",
+                                 intgroup = "sarifa_group",
+                                 returnData = T)
+DESeq2::plotCounts(dds_obj, "FABP4", intgroup = "sarifa_group")
 DESeq2::plotCounts(dds_obj, "ADIPOQ", intgroup = "sarifa_group")
 DESeq2::plotCounts(dds_obj, "TUSC5", intgroup = "sarifa_group", transform = T)
 ggplot(FABP_counts,aes(x=sarifa_group, y = count))+ scale_y_log10() + geom_violin()
@@ -272,74 +295,64 @@ ggplot(FABP_counts,aes(x=sarifa_group, y = count))+ scale_y_log10() + geom_violi
 
 vst <- assay(vst(dds_obj, blind = F))
 
-#GOI <- c("FABP4", "ADIPOQ", "FGA", "KRT4", "TUSC1")
 gene_data <- vst[GOI,] %>% t() %>% as.data.frame() %>% rownames_to_column("id")
 
 col_of_interest <- c(GOI, "ABSOLUTE Purity", "ESTIMATE score", "Stromal score")
-plot_data<- inner_join(gene_data, col_info, by = c("id" = "Row names y"))
-plot_data$`sarifa group`<- plot_data$`sarifa group` %>% forcats::fct_relevel("SARIFA")
-#plot_data %>% dplyr::select(all_of(col_of_interest)) %>% mutate(`paper ABSOLUTE Purity` = as.numeric(`paper ABSOLUTE Purity`)) %>%  corrr::correlate() -> gene_cor
-#small_cor <- gene_cor %>% dplyr::filter(term %in% c("paper ABSOLUTE Purity", "ESTIMATE score", "Stromal score"))
-#corrr::rplot(gene_cor,.order = "alphabet") + theme(axis.text.x = element_text(angle = 90, vjust #= 0.5, hjust=1))
+plot_data <- inner_join(gene_data, col_info, by = c("id" = "Row names y"))
+plot_data$`sarifa group`<- plot_data$`sarifa group` %>% 
+  forcats::fct_relevel("SARIFA")
 
 colnames(plot_data) %<>% str_remove("^paper ")
 colnames(plot_data)[duplicated(colnames(plot_data))] <- paste0("paper",
                                                                colnames(plot_data)[duplicated(colnames(plot_data))]) 
 dodge <- position_dodge(width = 0.8)
 
-plot_F <- ggplot(plot_data, aes(x = FABP4, y = `Stromal score`)) + geom_point() + geom_smooth(method = "lm") +
-  annotate("text", x = min(plot_data$FABP4)+1, y = max(plot_data$`Stromal score`,na.rm = T)-1, 
-           label = paste0("Cor=", round(cor(plot_data$FABP4, plot_data$`Stromal score`, use = "complete.obs"),2))) + theme_bw()
-ggplot(plot_data, aes(x = ADIPOQ, y = `Stromal score`)) + geom_point() + geom_smooth(method = "lm") +
-  annotate("text", x = min(plot_data$ADIPOQ), y = max(plot_data$`Stromal score`,na.rm = T), 
-           label = paste0("Cor=", round(cor(plot_data$ADIPOQ, plot_data$`Stromal score`, use = "complete.obs"),2))) + theme_bw()
+plot_F <- ggplot(plot_data, aes(x = FABP4, y = `Stromal score`)) +
+   geom_point() + geom_smooth(method = "lm") +
+  annotate("text", x = min(plot_data$FABP4)+1,
+                   y = max(plot_data$`Stromal score`,na.rm = T)-1,
+           label = paste0("Cor=", round(cor(plot_data$FABP4,
+                                            plot_data$`Stromal score`,
+                                            use = "complete.obs"),2))) + theme_bw()
+ggplot(plot_data, aes(x = ADIPOQ, y = `Stromal score`)) + geom_point() +
+        geom_smooth(method = "lm") +
+        annotate("text", x = min(plot_data$ADIPOQ),
+                         y = max(plot_data$`Stromal score`,na.rm = T),
+           label = paste0("Cor=", round(cor(plot_data$ADIPOQ,
+                          plot_data$`Stromal score`,
+                          use = "complete.obs"),2))) + theme_bw()
 ggplot(plot_data, aes(x = `Lauren Class`, y = FABP4, fill = `Lauren Class`)) + 
    geom_violin() + 
   geom_boxplot(width = 0.1) + theme_bw() + scale_fill_jco(alpha = 0.8)
-plot_E <- ggplot(plot_data, aes(x = `sarifa group`, y = FABP4, fill =  `Lauren Class`)) + 
+plot_E <- ggplot(plot_data, aes(x = `sarifa group`, y = FABP4,
+                 fill =  `Lauren Class`)) + 
   geom_violin(position = dodge) + 
   geom_boxplot(width = 0.1, position = dodge) + theme_bw() + scale_fill_jco(alpha = 0.8)
-plot_D<- ggplot(plot_data, aes(x = `sarifa group`, y = FABP4, fill = `sarifa group`)) +  geom_violin() + 
+
+plot_D <- ggplot(plot_data, aes(x = `sarifa group`,
+                                y = FABP4,
+                                fill = `sarifa group`)) +  geom_violin() + 
   geom_boxplot(width = 0.1) +
   theme_bw() +  scale_fill_npg(alpha = 0.8)
 ```
 
-```{r, fig.height = 14, fig_width = 18, eval = F}
-gene_cor
-```
+## GSEA Analysis
 
-```{R, fig.width = 12, fig.height = 10, eval = F}
-red_data <- table(col_info$sarifa_group, col_info$paper_Lauren.Class)
-red_data
-fisher.test(red_data[,c("Diffuse", "Intestinal")],)
-chisq.test(red_data[,c("Diffuse", "Intestinal")],)
-
-
-```
+Here we perform GSEA analysis of top DE genes against the C2 CP:REACTOME gene set  and 
+the MsigDB Hallmark gene sets. 
 
 ```{r}
 set.seed(19464)
 get_deseq2_results <- function(dds) {
-  # Damit korrigieren wir die Richtung!!!!
   contrast <- c("sarifa_group", "SARIFA", "NON_SARIFA")
   res <- results(dds, contrast=contrast)
-  # LFC shrinkage entweder mit apeglm oder gar nicht weil gerade das "normal",
-  # umstritten ist. 
-  #res <- lfcShrink(dds, contrast=contrast, res=res, type="apeglm")
   return(res)
 }
 create_gsea <- function(res, cat = "C2", subcat = "CP:REACTOME") {
-  # res_sig <- subset(res, res$padj < 0.05)
-  # res_sig <- subset(res_sig, abs(res_sig$log2FoldChange) > 1.0)
-  
-  # res_sig <- res_sig[order(res_sig$padj),]
-
   # Hier alternative Approach für GSEA -> Wir multiplisieren mit dem vollen WErt der Logfoldchange. 
   gene_list <- (- log10(res$pvalue)) * res$log2FoldChange
   names(gene_list) <- rownames(res)
   gene_list <- sort(gene_list, decreasing=TRUE)
-  # Und wir sollten mal das gesamte C2 testen weil nur CP hat jetzt kaum was ergeben
-  # TODO Vielleicht auch noch Hallmark "H"
   gene_sets <- msigdbr::msigdbr(species="human", category=cat, subcategory=subcat)
   gene_sets <- as.data.frame(dplyr::distinct(gene_sets, gs_name, ensembl_gene))
 
@@ -354,11 +367,15 @@ library(clusterProfiler)
 res <- get_deseq2_results(dds_red)
 enrich_res <- create_gsea(res)
 hallmarks <- create_gsea(res, "H", "")
-res_table <- enrich_res@result %>% arrange(desc(NES)) %>% mutate(direction = fct_relevel(ifelse(NES >0, "up", "down"),"up")) %>% mutate(ID = str_replace_all(str_remove(ID,"^REACTOME_"), "_", " "))
+res_table <- enrich_res@result %>% arrange(desc(NES)) %>% 
+              mutate(direction = fct_relevel(ifelse(NES >0, "up", "down"),"up")) %>% 
+              mutate(ID = str_replace_all(str_remove(ID,"^REACTOME_"), "_", " "))
 
-hallmark_table <- hallmarks@result %>% arrange(desc(NES)) %>% mutate(direction = fct_relevel(ifelse(NES >0, "up", "down"),"up"))  %>% mutate(ID = str_replace_all(ID, "_", " "))
+hallmark_table <- hallmarks@result %>% arrange(desc(NES)) %>% 
+                    mutate(direction = fct_relevel(ifelse(NES >0, "up", "down"),"up"))  %>% 
+                    mutate(ID = str_replace_all(ID, "_", " "))
 
-gsea_reactome<- ggplot(res_table, aes(x= fct_reorder(ID, NES), y=NES, fill = -log10(p.adjust))) + geom_col() +  
+gsea_reactome <- ggplot(res_table, aes(x= fct_reorder(ID, NES), y=NES, fill = -log10(p.adjust))) + geom_col() +  
   coord_flip() +   scale_fill_viridis(option = "H") +  labs(y = "Normalized Enrichment Score (NES)",
                                           x = "Reactome Gene Set")+
   scale_x_discrete(labels = function(x) str_wrap(x, width = 30)) + theme_bw() +
@@ -376,12 +393,17 @@ gsea_reactome
 gsea_hallmarck
 ```
 
+## Volcanoplot
+
+Here we visulize the results of the DE Analysis of SARIFA vs NON-SARIFA. 
+
 ```{r, fig.height = 8, fig.width = 10}
 
-Volcanoplot <- EnhancedVolcano(res,lab = rownames(res), 
+Volcanoplot <- EnhancedVolcano(res, lab = rownames(res), 
                 x = "log2FoldChange",
                 y = "padj", title = NULL, subtitle = NULL,ylab =bquote(~-Log[10] ~ italic(P.adj)),
-                pCutoff = 0.05, drawConnectors = TRUE,FCcutoff = 2,axisLabSize = 12, labSize = 3, legendLabSize = 18, legendPosition = "none",
+                pCutoff = 0.05, drawConnectors = TRUE,FCcutoff = 2,axisLabSize = 12, 
+                labSize = 3, legendLabSize = 18, legendPosition = "none",
                 caption = NULL
 )
 
@@ -469,72 +491,6 @@ aging_res <- run_deconvolution(expr_mat)
 ```
 
 
-```{r,fig.height=10, fig.width=12, eval = F}
-plot_immdecon <- function(plot_data, test_var = "sarifa") {
-    plot_data %>% group_by(cell_type) %>% 
-    summarize(results = t.test( score~ !!sym(test_var),paired = F,var.equal = T)$p.value) %>% 
-    mutate(results = p.adjust(results, method = "BH")) -> p_values
-    if(nrow(p_values) > 15) {
-      p_values %>% mutate(results = case_when(results > 0.1 ~ "NS",
-                                              results <= 0.1 & results > 0.01 ~ "*",
-                                              results <= 0.01 & results > 0.001 ~"**",
-                                              results <= 0.001 ~"***") 
-                          )-> p_values
-    } else {
-      p_values$results <- round(p_values$results, 2)
-    }
-    x_min <- 1:nrow(p_values) -0.2
-    x_max <- 1:nrow(p_values) +0.2
-    
-    ggplot(data= plot_data, aes(x = cell_type, y = score,fill = !!sym(test_var))) +
-           geom_boxplot(position = "dodge") +
-     theme_bw() + geom_signif(xmin=x_min, xmax =x_max,tip_length = 0,
-                              annotations = p_values$results,
-                               y_position = rep(max(plot_data$score,
-                                               na.rm = T)-max(plot_data$score,na.rm = T)*0.01,
-                              nrow(p_values)),map_signif_level = T) +  
-    scale_x_discrete(guide = guide_axis(angle = 90))
-  
-}
-
-create_res_plots <- function(imm_res, test_var = "sarifa") {
-  sarifa_vector <- setNames(col_info$`sarifa group`, nm = col_info$barcode) %>%  forcats::fct_relevel("SARIFA")
-  subtype_vector <- setNames(col_info$Subtype, nm = col_info$barcode)
-  lauren_vector <- setNames(col_info$`paper Lauren Class`, nm = col_info$barcode)
-  #purrr::map(aging_res, create_res_plots)
-#  imm_res <- rbind(imm_res, c(sarifa_vector[colnames(imm_res)]),
-#                   subtype_vector[colnames(imm_res)])
-#  imm_res$cell_type[length(imm_res$cell_type)] <- "sarifa"
-  imm_res %>% tidyr::pivot_longer(-1) %>% pivot_wider(names_from = 1, values_from = value) -> mr_pivot
-  mr_pivot$sarifa <- sarifa_vector[mr_pivot$name]
-  mr_pivot <- mr_pivot %>% dplyr::filter(!is.na(sarifa))
-  mr_pivot$subtype <- subtype_vector[mr_pivot$name]
-  mr_pivot$lauren <- lauren_vector[mr_pivot$name]
-  mr_pivot %>% group_by(!!sym(test_var)) %>% pivot_longer(!name & !sarifa &  !subtype & !lauren, names_to = "cell_type", values_to = "score") -> plot_data
-  plot_immdecon(plot_data, test_var = test_var)
-}
-
-purrr::map(aging_res, create_res_plots, test_var = "sarifa")
-```
-
-
-```{r, fig.height=10, fig.width=12, eval = F}
-sarifa_vector <- setNames(col_info$`sarifa group`, nm = col_info$barcode) %>%  forcats::fct_relevel("SARIFA")
-ciber_yeet<- read_csv("/cwd/data/CIBERSORTx_Job5_Results.csv")
-ciber_yeet$SARIFA <- sarifa_vector[ciber_yeet$Mixture]
-
-ciber_yeet %>% select(-RMSE, -Correlation, - `P-value`, -`Absolute score (sig.score)`) %>%
-  dplyr::filter(!is.na(SARIFA)) %>%
-  dplyr::rename(name = Mixture) -> ciber_yeet
-
- ciber_yeet %>% group_by(SARIFA) %>% tidyr::pivot_longer(!name & !SARIFA , names_to = "cell_type", values_to = "score") -> plot_data_ciber
- 
- plot_immdecon(plot_data_ciber, test_var = "SARIFA")
- 
- 
-
-```
-
 
 ```{r}
 tcga_ecotyper <- read_tsv("/cwd/data/TCGA_cell_state_assignments.tsv")
@@ -585,6 +541,15 @@ biplot(p, pointSize = 5, sizeLoadingsNames = 5, colby = "paper_Gene.Expression.C
 
 ```
 
+
+## Figures for Publication
+
+### Analysis of cBioPortal analysis
+
+First the SARIFA classifications were uploaded to cBioPortal and analyzed
+using the webtools provided by cBioPortal. alteration_percentages were 
+downloaded from the cBioPortal Website.
+
 ```{r Figure 3, fig.width=8, fig.height = 6}
 genomic_alterations <- readr::read_tsv("/cwd/data/alteration_percentage.tsv")
 genomic_alterations %>% mutate(`Log Ratio` = as.numeric(str_replace(`Log Ratio`,"[<>]","")))  -> genomic_alterations
@@ -603,7 +568,6 @@ variants_scatter<- ggplot(plot_data_small, aes(x =SARIFA, y = `NON-SARIFA`)) +
 
 q_val_plot <- ggplot(genomic_alterations, aes(x = `q-Value`)) + geom_freqpoly() + theme_bw()+ xlim(c(0,1))
 ggsave("/cwd/data/plots/Fig3b_variants_scatter.svg", variants_scatter)
-#ggsave("plots/gene_qvals.svg", q_val_plot)
 
 variants_scatter
 q_val_plot
@@ -625,7 +589,7 @@ plot_A <- Volcanoplot
 plot_B_one <- gsea_hallmarck + theme(legend.position = "none", axis.text = element_text(size=nes_fontsize),  axis.title = element_text(size = nes_fontsize))# +  standard_theme
 plot_B_two <- gsea_reactome+   theme(axis.text = element_text(size=nes_fontsize), axis.title = element_text(size = nes_fontsize), 
                                      legend.text = element_text(size = nes_fontsize), legend.title = element_text(size=nes_fontsize))
-plot_C <- grid.grabExpr(draw(x$resstrict))
+plot_C <- grid.grabExpr(draw(sarifa_red_figure$resstrict))
 
 plot_D <- plot_D + standard_theme  
 plot_E <- plot_E +   standard_theme  

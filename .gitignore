@@ -53,3 +53,8 @@ po/*~
 .env.production.local
 
 # data/cache
+*.png
+*.pdf
+*.csv
+*.tsv
+*.counts.gz

@@ -9,7 +9,7 @@ services:
     environment:
       - DISPLAY=${HOSTNAME}:0
     tty: true
-    #command: /bin/bash
+  #  command: /bin/bash
     command: Rscript /cwd/code/main.R
     #  butchr:
     #image: hdsu/butchr
