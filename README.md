@@ -1,6 +1,6 @@
 # SARIFA Analysis scripts
 
-This repository houses all scripts need to reproduce the RNAseq analysis of *insert link here*.
+This repository houses all scripts need to reproduce the RNAseq analysis of [*insert link here*.](https://link.springer.com/article/10.1007/s10120-023-01436-8) .
 
 ## How to run
 
